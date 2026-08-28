@@ -7,10 +7,22 @@ const admin = require('firebase-admin');
 let app;
 function getAdminApp() {
   if (app) return app;
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  if (!projectId || !clientEmail || !privateKey) {
+  const projectId = (process.env.FIREBASE_PROJECT_ID || '').trim();
+  const clientEmail = (process.env.FIREBASE_CLIENT_EMAIL || '').trim();
+  let privateKey = (process.env.FIREBASE_PRIVATE_KEY || '').trim();
+  // 흔한 실수 방지: Value 칸에 앞뒤 큰따옴표까지 같이 붙여넣은 경우 제거
+  if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+    privateKey = privateKey.slice(1, -1);
+  }
+  // "\n" 이라는 두 글자(백슬래시+n)로 저장된 줄바꿈을 실제 줄바꿈으로 변환
+  privateKey = privateKey.replace(/\\n/g, '\n').trim();
+  if (
+    !projectId ||
+    !clientEmail ||
+    !privateKey ||
+    !privateKey.includes('BEGIN PRIVATE KEY') ||
+    !privateKey.includes('END PRIVATE KEY')
+  ) {
     throw new Error(
       'Firebase Admin 환경변수가 없습니다 (FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY). Vercel 프로젝트 설정 > Environment Variables에서 추가해주세요.'
     );
@@ -39,14 +51,12 @@ module.exports = async function handler(req, res) {
     }
 
     if (!pin || pin !== expected) {
-      // 무차별 대입 시도를 조금이라도 늦추기 위한 지연
       await new Promise((r) => setTimeout(r, 400));
       res.status(401).json({ error: 'PIN이 올바르지 않아요.' });
       return;
     }
 
     getAdminApp();
-    // 고정된 하나의 "editor" 계정으로 로그인시킵니다 (PIN을 아는 사람은 모두 같은 편집 권한을 가져요).
     const token = await admin.auth().createCustomToken('tennis-editor');
     res.status(200).json({ token });
   } catch (err) {
