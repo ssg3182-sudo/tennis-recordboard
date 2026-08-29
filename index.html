@@ -1273,16 +1273,27 @@
   }
 
   async function ensureSeeded(){
-    if(!FIREBASE_READY || docExists || !writable || seeding) return;
+    // docExists starts false on every page load, before the live onSnapshot
+    // listener has had a chance to report the real state — so this must not
+    // trust that flag alone (that caused a race where a freshly-loaded,
+    // already-logged-in session would blindly re-upload the old embedded
+    // fallback data over real edits). Always confirm with a fresh one-time
+    // read first.
+    if(!FIREBASE_READY || !writable || seeding) return;
     seeding = true;
-    setSaveStatus('saving', '초기 데이터를 Firebase에 업로드하는 중…');
     try {
-      await fsApi.setDoc(docRef, { json: JSON.stringify(DATA), updatedAt: new Date().toISOString() });
-      docExists = true;
-      setSaveStatus('saved');
+      var existing = await fsApi.getDoc(docRef);
+      if(existing.exists()){
+        docExists = true;
+      } else {
+        setSaveStatus('saving', '초기 데이터를 Firebase에 업로드하는 중…');
+        await fsApi.setDoc(docRef, { json: JSON.stringify(DATA), updatedAt: new Date().toISOString() });
+        docExists = true;
+        setSaveStatus('saved');
+      }
     } catch(err){
-      console.error('[tennis-record] initial seed failed:', err);
-      setSaveStatus('error', (err && err.message) || '초기 업로드 실패');
+      console.error('[tennis-record] initial seed check failed:', err);
+      setSaveStatus('error', (err && err.message) || '초기 업로드 확인 실패');
     }
     seeding = false;
   }
