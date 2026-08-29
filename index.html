@@ -1277,7 +1277,7 @@
     seeding = true;
     setSaveStatus('saving', '초기 데이터를 Firebase에 업로드하는 중…');
     try {
-      await fsApi.setDoc(docRef, DATA);
+      await fsApi.setDoc(docRef, { json: JSON.stringify(DATA), updatedAt: new Date().toISOString() });
       docExists = true;
       setSaveStatus('saved');
     } catch(err){
@@ -1294,7 +1294,7 @@
     pendingSave = false;
     setSaveStatus('saving');
     try {
-      await fsApi.setDoc(docRef, DATA);
+      await fsApi.setDoc(docRef, { json: JSON.stringify(DATA), updatedAt: new Date().toISOString() });
       docExists = true;
       saving = false;
       setSaveStatus('saved');
@@ -1336,9 +1336,13 @@
       fsApi.onSnapshot(docRef, function(snap){
         if(snap.exists()){
           docExists = true;
-          var remote = snap.data();
-          if(modalOpen){ pendingRemote = remote; return; }
-          applyRemoteData(remote);
+          var raw = snap.data();
+          var remote = null;
+          try { remote = raw && typeof raw.json === 'string' ? JSON.parse(raw.json) : null; } catch(e){ console.error('[tennis-record] failed to parse remote data:', e); }
+          if(remote){
+            if(modalOpen){ pendingRemote = remote; return; }
+            applyRemoteData(remote);
+          }
         } else {
           docExists = false;
           if(writable){ ensureSeeded(); }
