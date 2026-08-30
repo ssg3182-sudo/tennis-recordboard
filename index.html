@@ -1112,8 +1112,9 @@
     var editT = e.target.closest('[data-action="edit-tournament"]');
     if(editT){
       e.stopPropagation();
-      var t1 = findTournament(editT.getAttribute('data-season'), editT.getAttribute('data-id'));
-      if(t1) openEditTournamentModal(t1);
+      var editSeason = editT.getAttribute('data-season');
+      var t1 = findTournament(editSeason, editT.getAttribute('data-id'));
+      if(t1) openEditTournamentModal(t1, editSeason);
       return;
     }
     var addM = e.target.closest('[data-action="add-match"]');
@@ -1436,7 +1437,7 @@
     document.getElementById('authBtn').addEventListener('click', function(){
       if(!FIREBASE_READY){ alert('아직 Firebase 연결이 설정되지 않았어요. README를 참고해 FIREBASE_CONFIG를 채워주세요.'); return; }
       if(writable){
-        if(confirm('로그아웃할까요?')){ authApi.signOut(auth); }
+        authApi.signOut(auth);
       } else {
         openLoginModal();
       }
@@ -1481,8 +1482,21 @@
     overlay.addEventListener('click', overlayClickClose);
     document.getElementById('modalCancelBtn').addEventListener('click', closeModal);
     if(opts.onDelete){
-      document.getElementById('modalDeleteBtn').addEventListener('click', function(){
-        if(confirm('정말 삭제할까요? 되돌릴 수 없어요.')){ opts.onDelete(); closeModal(); }
+      // 일부 브라우저(카카오톡 인앱 브라우저 등)는 confirm() 창을 아예 띄우지 않거나
+      // 자동으로 취소 처리해서, 그 결과만 기다리는 코드는 "눌러도 반응 없음"처럼 보였어요.
+      // 그래서 브라우저 팝업 대신, 버튼 자체를 두 번 눌러야 실제로 삭제되도록 바꿨어요.
+      var delBtn = document.getElementById('modalDeleteBtn');
+      var armed = false, armTimer = null;
+      delBtn.addEventListener('click', function(){
+        if(!armed){
+          armed = true;
+          delBtn.textContent = '정말요? 한번 더 누르면 삭제돼요';
+          armTimer = setTimeout(function(){ armed = false; delBtn.textContent = '삭제'; }, 4000);
+          return;
+        }
+        clearTimeout(armTimer);
+        opts.onDelete();
+        closeModal();
       });
     }
     document.getElementById('modalForm').addEventListener('submit', function(e){
@@ -1512,10 +1526,10 @@
 
   var ROUND_DATALIST = '<datalist id="roundList"><option value="우승"><option value="준우승"><option value="4강"><option value="8강"><option value="16강"><option value="32강"><option value="64강"><option value="예선"><option value="-"></datalist>';
 
-  function tournamentFormHtml(t){
+  function tournamentFormHtml(t, currentSeason){
     t = t || {};
     var seasons = ['2026','2025'];
-    var defaultSeason = t.season || (state.season!=='all' ? state.season : '2026');
+    var defaultSeason = currentSeason || t.season || (state.season!=='all' ? state.season : '2026');
     var seasonOpts = seasons.map(function(s){ return '<option value="'+s+'"'+(defaultSeason===s?' selected':'')+'>'+s+'년</option>'; }).join('');
     var grades = ['','1급','2급','3급','4급'];
     var gradeOpts = grades.map(function(g){ return '<option value="'+g+'"'+(t.grade===g?' selected':'')+'>'+(g||'급수 없음')+'</option>'; }).join('');
@@ -1576,18 +1590,26 @@
     });
   }
 
-  function openEditTournamentModal(t){
-    openModal('대회 수정', escapeHtml(t.name), tournamentFormHtml(t), function(fd){
+  function openEditTournamentModal(t, season){
+    // t comes from findTournament() — the raw record stored inside DATA[season],
+    // which never carries its own .season field (that's only added to the
+    // display copies buildAll() makes). Relying on t.season here was always
+    // undefined, so saving/deleting silently touched a bogus DATA[undefined]
+    // bucket instead of the real array: edits looked like they "added a new
+    // entry" (the old one was never actually removed) and deletes did nothing.
+    // The caller now passes the real season explicitly.
+    var origSeason = season || t.season;
+    openModal('대회 수정', escapeHtml(t.name), tournamentFormHtml(t, origSeason), function(fd){
       var newSeason = fd.get('season');
       var name = (fd.get('name')||'').trim();
       if(!name) throw new Error('대회명을 입력해주세요.');
       var updated = buildTournamentFromForm(fd, newSeason, t);
-      DATA[t.season] = (DATA[t.season]||[]).filter(function(x){ return x.id!==t.id; });
+      DATA[origSeason] = (DATA[origSeason]||[]).filter(function(x){ return x.id!==t.id; });
       DATA[newSeason] = DATA[newSeason] || [];
       DATA[newSeason].push(updated);
       afterMutate();
     }, { onDelete: function(){
-        DATA[t.season] = (DATA[t.season]||[]).filter(function(x){ return x.id!==t.id; });
+        DATA[origSeason] = (DATA[origSeason]||[]).filter(function(x){ return x.id!==t.id; });
         afterMutate();
       }
     });
