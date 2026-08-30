@@ -643,11 +643,38 @@
   }
   normalizeIds();
 
+  // 경기 기록(라운드별)만 입력하고 "최종성적" 칸을 따로 채우지 않았을 때,
+  // 입력된 경기 중 가장 깊이 진출한 라운드를 자동으로 최종성적으로 사용합니다.
+  function deriveResultFromMatches(matches, wantDoubles){
+    if(!matches || !matches.length) return null;
+    var best = null;
+    matches.forEach(function(m){
+      if(!m || !m.round) return;
+      var isD = String(m.round).indexOf('복식')>=0;
+      if(isD !== wantDoubles) return;
+      if(best==null || roundRank(m.round) < roundRank(best)) best = m.round;
+    });
+    if(best==null) return null;
+    return String(best).replace(/\(.*?\)/g,'').trim();
+  }
+
   function buildAll(){
     var out = [];
     ['2025','2026'].forEach(function(season){
       (DATA[season]||[]).forEach(function(t){
         var c = Object.assign({}, t, {season: season});
+        if(!c.resultSingle){
+          var ds = deriveResultFromMatches(c.matches, false);
+          if(ds) c.resultSingle = ds;
+        }
+        if(!c.resultDouble){
+          var dd = deriveResultFromMatches(c.matches, true);
+          if(dd) c.resultDouble = dd;
+        }
+        if(c.bestRoundRank==null){
+          var rr = Math.min(roundRank(c.resultSingle), roundRank(c.resultDouble));
+          if(rr < 99) c.bestRoundRank = rr;
+        }
         out.push(c);
       });
     });
