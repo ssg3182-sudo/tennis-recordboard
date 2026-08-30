@@ -1275,6 +1275,7 @@
   var lastSaveError = null;
   var modalOpen = false;
   var pendingRemote = null;
+  var localMutationPending = false;
 
   function setSaveStatus(name, detail){
     var el = document.getElementById('saveStatus');
@@ -1363,6 +1364,7 @@
   }
 
   function afterMutate(){
+    localMutationPending = true;
     ALL = buildAll();
     OPP_INDEX = buildOpponentIndex();
     render();
@@ -1448,7 +1450,18 @@
     overlay.hidden = true;
     overlay.removeEventListener('click', overlayClickClose);
     modalOpen = false;
-    if(pendingRemote){ var r = pendingRemote; pendingRemote = null; applyRemoteData(r); }
+    if(localMutationPending){
+      // We just added/edited/deleted something while this modal was open, and
+      // that change has already been applied locally + sent to Firebase. A
+      // snapshot that arrived *while the modal was still open* reflects the
+      // data from BEFORE this change, so applying it now would silently
+      // revert (e.g. a deleted tournament reappearing). Our own save's
+      // confirmation will come back through the normal listener shortly.
+      pendingRemote = null;
+      localMutationPending = false;
+    } else if(pendingRemote){
+      var r = pendingRemote; pendingRemote = null; applyRemoteData(r);
+    }
   }
   function openModal(titleHtml, subHtml, bodyHtml, onSubmit, opts){
     opts = opts || {};
