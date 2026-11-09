@@ -445,7 +445,7 @@
         <p class="hero-sub">신이수 선수의 전국 주니어 테니스대회 시즌 기록관리 현황판 &mdash; 대회 성적, 포인트·랭킹 추이, 경기별 세트 스코어를 한눈에 확인합니다.</p>
         <div class="hero-meta">
           <span class="meta-chip">선수 <b>신이수</b></span>
-          <span class="meta-chip">기록 시즌 <b>2025&ndash;2026</b></span>
+          <span class="meta-chip">기록 시즌 <b id="seasonRange">2025&ndash;2026</b></span>
           <span class="meta-chip">최근 업데이트 <b id="genDate">-</b></span>
         </div>
         <div class="next-banner" id="nextBanner" hidden>
@@ -629,8 +629,14 @@
 
   function genId(prefix){ return prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 
+  // DATA 안에 들어 있는 모든 연도(시즌) 키를 오름차순으로 돌려줘요.
+  // 2027년, 2028년… 새 연도가 추가되면 자동으로 포함돼요.
+  function seasonKeys(){
+    return Object.keys(DATA).filter(function(k){ return /^\d{4}$/.test(k) && Array.isArray(DATA[k]); }).sort();
+  }
+
   function normalizeIds(){
-    ['2025','2026'].forEach(function(season){
+    seasonKeys().forEach(function(season){
       (DATA[season]||[]).forEach(function(t){
         if(!t.id) t.id = genId(season);
         if(t.matches){
@@ -660,7 +666,7 @@
 
   function buildAll(){
     var out = [];
-    ['2025','2026'].forEach(function(season){
+    seasonKeys().forEach(function(season){
       (DATA[season]||[]).forEach(function(t){
         var c = Object.assign({}, t, {season: season});
         if(!c.resultSingle){
@@ -690,7 +696,7 @@
 
   function buildOpponentIndex(){
     var map = {};
-    ['2025','2026'].forEach(function(season){
+    seasonKeys().forEach(function(season){
       (DATA[season]||[]).forEach(function(t){
         if(!t.matches) return;
         t.matches.forEach(function(m){
@@ -730,21 +736,42 @@
 
   // ---------- tabs ----------
   var seasonTabs = document.getElementById('seasonTabs');
-  var TABS = [{key:'all', label:'통산'}, {key:'2026', label:'2026년'}, {key:'2025', label:'2025년'}];
-  TABS.forEach(function(t){
-    var b = document.createElement('button');
-    b.className='tab'; b.textContent=t.label; b.setAttribute('role','tab');
-    b.setAttribute('aria-pressed', state.season===t.key ? 'true':'false');
-    b.addEventListener('click', function(){
-      state.season = t.key;
-      Array.prototype.forEach.call(seasonTabs.children, function(el,i){ el.setAttribute('aria-pressed', TABS[i].key===t.key ? 'true':'false'); });
-      render();
+  // 탭은 기록이 있는 연도만큼 자동으로 만들어져요 (통산 + 최신 연도부터).
+  var THIS_YEAR = String(TODAY.getFullYear());
+  var seasonPicked = false; // 사용자가 탭을 직접 고른 적이 있는지
+  function seasonsWithData(){
+    return seasonKeys().filter(function(s){ return DATA[s].length>0; });
+  }
+  function defaultSeason(){
+    var ys = seasonsWithData();
+    if(!ys.length) return 'all';
+    return ys.indexOf(THIS_YEAR)>=0 ? THIS_YEAR : ys[ys.length-1];
+  }
+  function renderSeasonTabs(){
+    var ys = seasonsWithData();
+    if(!seasonPicked || (state.season!=='all' && ys.indexOf(state.season)<0)){
+      state.season = defaultSeason();
+    }
+    var tabs = [{key:'all', label:'통산'}].concat(ys.slice().reverse().map(function(s){ return {key:s, label:s+'년'}; }));
+    seasonTabs.innerHTML = '';
+    tabs.forEach(function(t){
+      var b = document.createElement('button');
+      b.className='tab'; b.textContent=t.label; b.setAttribute('role','tab');
+      b.setAttribute('aria-pressed', state.season===t.key ? 'true':'false');
+      b.addEventListener('click', function(){
+        state.season = t.key;
+        seasonPicked = true;
+        Array.prototype.forEach.call(seasonTabs.children, function(el,i){ el.setAttribute('aria-pressed', tabs[i].key===t.key ? 'true':'false'); });
+        render();
+      });
+      seasonTabs.appendChild(b);
     });
-    seasonTabs.appendChild(b);
-  });
-  state.season = '2026';
-  seasonTabs.children[1].setAttribute('aria-pressed','true');
-  seasonTabs.children[0].setAttribute('aria-pressed','false');
+    var rangeEl = document.getElementById('seasonRange');
+    if(rangeEl && ys.length){
+      rangeEl.textContent = ys.length>1 ? (ys[0]+'\u2013'+ys[ys.length-1]) : ys[0];
+    }
+  }
+  renderSeasonTabs();
 
   var gradeFilter = document.getElementById('gradeFilter');
   var gradeBtns = [];
@@ -1313,6 +1340,7 @@
     normalizeIds();
     ALL = buildAll();
     OPP_INDEX = buildOpponentIndex();
+    renderSeasonTabs();
     render();
     renderNextBanner();
     if(h2hSelected){ renderH2HDetail(h2hSelected); }
@@ -1368,6 +1396,7 @@
     localMutationPending = true;
     ALL = buildAll();
     OPP_INDEX = buildOpponentIndex();
+    renderSeasonTabs();
     render();
     renderNextBanner();
     if(h2hSelected){ renderH2HDetail(h2hSelected); }
@@ -1528,9 +1557,14 @@
 
   function tournamentFormHtml(t, currentSeason){
     t = t || {};
-    var seasons = ['2026','2025'];
-    var defaultSeason = currentSeason || t.season || (state.season!=='all' ? state.season : '2026');
-    var seasonOpts = seasons.map(function(s){ return '<option value="'+s+'"'+(defaultSeason===s?' selected':'')+'>'+s+'년</option>'; }).join('');
+    var selSeason = currentSeason || t.season || (state.season!=='all' ? state.season : THIS_YEAR);
+    // 선택 가능한 연도: 가장 오래된 기록 연도 ~ (올해와 가장 최신 기록 연도 중 큰 값 + 2년).
+    // 해가 바뀌거나 새 연도 기록이 생기면 목록이 자동으로 늘어나요.
+    var known = seasonKeys().concat([THIS_YEAR, selSeason]).map(function(s){ return parseInt(s,10); });
+    var minY = Math.min.apply(null, known), maxY = Math.max.apply(null, known) + 2;
+    var seasons = [];
+    for(var y = maxY; y >= minY; y--){ seasons.push(String(y)); }
+    var seasonOpts = seasons.map(function(s){ return '<option value="'+s+'"'+(selSeason===s?' selected':'')+'>'+s+'년</option>'; }).join('');
     var grades = ['','1급','2급','3급','4급'];
     var gradeOpts = grades.map(function(g){ return '<option value="'+g+'"'+(t.grade===g?' selected':'')+'>'+(g||'급수 없음')+'</option>'; }).join('');
     return ''+
@@ -1586,6 +1620,8 @@
       var t = buildTournamentFromForm(fd, season, null);
       DATA[season] = DATA[season] || [];
       DATA[season].push(t);
+      // 다른 연도 탭을 보고 있었다면, 방금 추가한 연도 탭으로 옮겨서 바로 보이게 해요.
+      if(state.season!=='all'){ state.season = season; seasonPicked = true; }
       afterMutate();
     });
   }
